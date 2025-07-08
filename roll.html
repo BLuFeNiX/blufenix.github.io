@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>NIST Beacon Dice Roll</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        input, button { margin: 0.5em 0; }
+        table { border-collapse: collapse; margin-bottom: 1em; }
+        th, td { border: 1px solid #ccc; padding: 0.5em; }
+    </style>
+</head>
+<body>
+    <h1>NIST Beacon Dice Roll Setup</h1>
+    <div id="setup">
+        <h2>Enter Participants</h2>
+        <table id="participants">
+            <thead>
+                <tr><th>Name</th><th>Weight</th><th></th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <button onclick="addRow()">Add Participant</button>
+        <br>
+        <label>
+            Draw in (minutes): 
+            <input type="number" id="drawMinutes" value="5" min="1" max="60">
+        </label>
+        <br>
+        <button onclick="generateURL()">Generate Draw URL</button>
+        <div id="drawURL"></div>
+    </div>
+
+    <div id="result" style="display:none;">
+        <h2>Dice Roll Result</h2>
+        <div id="drawInfo"></div>
+        <div id="winner"></div>
+    </div>
+
+    <script>
+        // --- Setup page logic ---
+        function addRow(name = '', weight = 1) {
+            const tbody = document.querySelector('#participants tbody');
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="text" value="${name}" placeholder="Name"></td>
+                <td><input type="number" value="${weight}" min="1" style="width:60px"></td>
+                <td><button onclick="this.closest('tr').remove()">Remove</button></td>
+            `;
+            tbody.appendChild(tr);
+        }
+        // Add initial row
+        addRow();
+
+        async function generateURL() {
+            // Get last beacon timestamp
+            const res = await fetch('https://beacon.nist.gov/beacon/2.0/pulse/last');
+            const data = await res.json();
+            // Parse ISO8601 timeStamp to seconds since epoch
+            let baseTimestamp;
+            try {
+                if (!data.pulse || !data.pulse.timeStamp) throw new Error('Missing timeStamp');
+                baseTimestamp = Math.floor(Date.parse(data.pulse.timeStamp) / 1000);
+            } catch (e) {
+                alert('Could not parse beacon timeStamp.');
+                return;
+            }
+
+            // Get participants
+            const rows = document.querySelectorAll('#participants tbody tr');
+            const participants = [];
+            for (const row of rows) {
+                const name = row.children[0].querySelector('input').value.trim();
+                const weight = parseInt(row.children[1].querySelector('input').value, 10);
+                if (name && weight > 0) {
+                    participants.push({ name, weight });
+                }
+            }
+            if (participants.length === 0) {
+                alert('Please enter at least one participant.');
+                return;
+            }
+
+            // Get draw time
+            const minutes = parseInt(document.getElementById('drawMinutes').value, 10);
+            const drawTimestamp = baseTimestamp + minutes * 60;
+
+            // Encode data in URL
+            const params = new URLSearchParams();
+            params.set('base', baseTimestamp);
+            params.set('draw', drawTimestamp);
+            params.set('names', participants.map(p => encodeURIComponent(p.name)).join(','));
+            params.set('weights', participants.map(p => p.weight).join(','));
+
+            const url = `${location.origin}${location.pathname}?${params.toString()}`;
+            document.getElementById('drawURL').innerHTML = `<strong>Draw URL:</strong> <a href="${url}" target="_blank">${url}</a>`;
+        }
+
+        // --- Draw page logic ---
+        async function runDraw() {
+            const params = new URLSearchParams(location.search);
+            if (!params.has('base') || !params.has('draw') || !params.has('names') || !params.has('weights')) return;
+
+            document.getElementById('setup').style.display = 'none';
+            document.getElementById('result').style.display = '';
+
+            const base = parseInt(params.get('base'), 10);
+            const draw = parseInt(params.get('draw'), 10);
+            const names = params.get('names').split(',').map(decodeURIComponent);
+            const weights = params.get('weights').split(',').map(Number);
+
+            // Show draw info
+            const drawDate = new Date(draw * 1000);
+            document.getElementById('drawInfo').innerHTML = `
+                <p>Base timestamp: ${base} (${new Date(base * 1000).toLocaleString()})</p>
+                <p>Draw timestamp: ${draw} (${drawDate.toLocaleString()})</p>
+                <p>Participants:</p>
+                <ul>${names.map((n, i) => `<li>${n} (weight: ${weights[i]})</li>`).join('')}</ul>
+            `;
+
+            // Wait until draw time if not yet reached
+            const now = Math.floor(Date.now() / 1000);
+            if (now < draw) {
+                document.getElementById('winner').innerHTML = `<p>Draw will occur at ${drawDate.toLocaleString()}.</p>`;
+                return;
+            }
+
+            // Fetch beacon at draw timestamp (API expects milliseconds)
+            let beacon, pulseUri;
+            try {
+                // Convert draw time to milliseconds
+                const drawMs = draw * 1000;
+                console.log('Requesting beacon for timestamp (ms):', drawMs);
+                const res = await fetch(`https://beacon.nist.gov/beacon/2.0/pulse/time/${drawMs}`);
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(`HTTP ${res.status}: ${text}`);
+                }
+                const data = await res.json();
+                if (!data.pulse || !data.pulse.outputValue) throw new Error('Missing outputValue');
+                beacon = data.pulse.outputValue;
+                pulseUri = data.pulse.uri;
+            } catch (e) {
+                document.getElementById('winner').innerHTML = `<p>Could not fetch beacon for draw timestamp. Try again later.</p><pre>${e}</pre>`;
+                return;
+            }
+
+            // Weighted dice roll
+            const expanded = [];
+            names.forEach((name, i) => {
+                for (let j = 0; j < weights[i]; ++j) expanded.push(name);
+            });
+            const numSides = expanded.length;
+            const roll = parseInt(beacon, 16) % numSides;
+            const winner = expanded[roll];
+
+            // Build table of all possible winners
+            let tableHtml = `<table><thead><tr><th>Index</th><th>Name</th></tr></thead><tbody>`;
+            expanded.forEach((name, idx) => {
+                if (idx === roll) {
+                    tableHtml += `<tr style='background: #cfc'><td><strong>${idx + 1}</strong></td><td><strong>${name}</strong> <span style='color:green'>&#x2714;</span></td></tr>`;
+                } else {
+                    tableHtml += `<tr><td>${idx + 1}</td><td>${name}</td></tr>`;
+                }
+            });
+            tableHtml += `</tbody></table>`;
+
+            // Build pulse link based on timestamp (drawMs)
+            const pulseLinkByTime = `https://beacon.nist.gov/beacon/2.0/pulse/time/${draw * 1000}`;
+
+            document.getElementById('winner').innerHTML = `
+                <p>Beacon output: <code>${beacon}</code></p>
+                <p>Pulse link (from API): <a href="${pulseUri}" target="_blank">${pulseUri}</a></p>
+                <p>Pulse link (by timestamp): <a href="${pulseLinkByTime}" target="_blank">${pulseLinkByTime}</a></p>
+                <p>Dice roll: <strong>${roll + 1}</strong> (out of ${numSides})</p>
+                <h3>Winner: <span style="color:green">${winner}</span></h3>
+                <h4>All Possible Rolls:</h4>
+                ${tableHtml}
+                <h4>Python Script to Verify Dice Roll:</h4>
+                <pre><code class="language-python">beacon_hex = "${beacon}"
+num_sides = ${numSides}
+beacon_int = int(beacon_hex, 16)
+roll = (beacon_int % num_sides) + 1
+print(f"Dice roll: ${roll}")
+</code></pre>
+            `;
+        }
+
+        // On load, check if draw params are present
+        if (location.search.includes('base=') && location.search.includes('draw=')) {
+            runDraw();
+        }
+
+        // Prepopulate participants if names and weights are in URL
+        window.addEventListener('DOMContentLoaded', () => {
+            const params = new URLSearchParams(location.search);
+            if (params.has('names') && params.has('weights')) {
+                // Remove any default row
+                document.querySelector('#participants tbody').innerHTML = '';
+                const names = params.get('names').split(',').map(decodeURIComponent);
+                const weights = params.get('weights').split(',').map(Number);
+                for (let i = 0; i < names.length; ++i) {
+                    addRow(names[i], weights[i] || 1);
+                }
+            }
+        });
+    </script>
+</body>
+</html>
