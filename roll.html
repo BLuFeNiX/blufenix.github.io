@@ -170,8 +170,6 @@
 
             document.getElementById('winner').innerHTML = `
                 <p>Beacon output: <code>${beacon}</code></p>
-                <p>Pulse link (from API): <a href="${pulseUri}" target="_blank">${pulseUri}</a></p>
-                <p>Pulse link (by timestamp): <a href="${pulseLinkByTime}" target="_blank">${pulseLinkByTime}</a></p>
                 <p>Dice roll: <strong>${roll + 1}</strong> (out of ${numSides})</p>
                 <h3>Winner: <span style="color:green">${winner}</span></h3>
                 <h4>All Possible Rolls:</h4>
@@ -181,7 +179,7 @@
 num_sides = ${numSides}
 beacon_int = int(beacon_hex, 16)
 roll = (beacon_int % num_sides) + 1
-print(f"Dice roll: \${roll}")
+print(f"Dice roll: {roll}")
 </code></pre>
             `;
         }
