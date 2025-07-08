@@ -111,9 +111,12 @@
 
             // Show draw info
             const drawDate = new Date(draw * 1000);
+            // Only define pulseLinkByTime once, at the top of runDraw
+            const pulseLinkByTime = `https://beacon.nist.gov/beacon/2.0/pulse/time/${draw * 1000}`;
             document.getElementById('drawInfo').innerHTML = `
                 <p>Base timestamp: ${base} (${new Date(base * 1000).toLocaleString()})</p>
                 <p>Draw timestamp: ${draw} (${drawDate.toLocaleString()})</p>
+                <p>Pulse link (by timestamp): <a href="${pulseLinkByTime}" target="_blank">${pulseLinkByTime}</a></p>
                 <p>Participants:</p>
                 <ul>${names.map((n, i) => `<li>${n} (weight: ${weights[i]})</li>`).join('')}</ul>
             `;
@@ -165,9 +168,6 @@
             });
             tableHtml += `</tbody></table>`;
 
-            // Build pulse link based on timestamp (drawMs)
-            const pulseLinkByTime = `https://beacon.nist.gov/beacon/2.0/pulse/time/${draw * 1000}`;
-
             document.getElementById('winner').innerHTML = `
                 <p>Beacon output: <code>${beacon}</code></p>
                 <p>Pulse link (from API): <a href="${pulseUri}" target="_blank">${pulseUri}</a></p>
@@ -181,7 +181,7 @@
 num_sides = ${numSides}
 beacon_int = int(beacon_hex, 16)
 roll = (beacon_int % num_sides) + 1
-print(f"Dice roll: ${roll}")
+print(f"Dice roll: \${roll}")
 </code></pre>
             `;
         }
